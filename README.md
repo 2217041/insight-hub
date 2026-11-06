@@ -21,6 +21,14 @@
 
 ---
 
+## 界面（W1）
+
+![健康检查看板](docs/screenshots/w1/01-home-health.png)
+
+<sub>W1 验收截图：Web → API → PostgreSQL（含 pgvector）/ Redis 全链路连通。更多见 [docs/screenshots/](docs/screenshots/)。</sub>
+
+---
+
 ## 快速开始
 
 **0. 启动数据库和缓存**（每次重启 Windows 后都要跑一次）
