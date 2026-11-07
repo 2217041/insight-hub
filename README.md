@@ -21,11 +21,11 @@
 
 ---
 
-## 界面（W1）
+## 界面（W2）
 
-![健康检查看板](docs/screenshots/w1/01-home-health.png)
+![对话骨架](docs/screenshots/w2/01-chat-empty.png)
 
-<sub>W1 验收截图：Web → API → PostgreSQL（含 pgvector）/ Redis 全链路连通。更多见 [docs/screenshots/](docs/screenshots/)。</sub>
+<sub>W2：会话列表 + 消息区 + SSE 流式输出 + Markdown 渲染。设计记录见 [docs/w2.md](docs/w2.md)。</sub>
 
 ---
 
@@ -62,7 +62,7 @@ cd apps\web
 npm.cmd run dev
 ```
 
-打开 http://localhost:3000 ，三项指标全绿即成功。
+打开 http://localhost:3000 ，点「+ 新对话」发一条消息，看到**逐字流式出现**即成功。
 
 > 若报 `npm : 无法加载文件 ...\npm.ps1，因为在此系统上禁止运行脚本`，用 `npm.cmd` 即可（不改系统设置）。
 

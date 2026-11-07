@@ -1,142 +1,248 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-type Health = {
-  status: string;
-  db: string;
-  db_detail?: string;
-  redis: string;
-  redis_detail?: string;
-  version: string;
-};
+import { ChatPanel } from "@/components/ChatPanel";
+import { Sidebar } from "@/components/Sidebar";
+import { streamChat } from "@/lib/api";
+import {
+  loadActiveId,
+  loadConversations,
+  saveActiveId,
+  saveConversations,
+} from "@/lib/storage";
+import {
+  newConversation,
+  newId,
+  titleFrom,
+  type Conversation,
+  type Message,
+} from "@/lib/types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
+export default function Page() {
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+  const [streaming, setStreaming] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
-function Row({
-  label,
-  value,
-  detail,
-}: {
-  label: string;
-  value: string;
-  detail?: string;
-}) {
-  const ok = value === "ok";
-  return (
-    <div className="flex items-start justify-between gap-4 border-b border-gray-100 py-3 last:border-0">
-      <span className="text-sm text-gray-500">{label}</span>
-      <span className="text-right">
-        <span
-          className={`font-mono text-sm font-medium ${ok ? "text-emerald-600" : "text-red-600"}`}
-        >
-          {value}
-        </span>
-        {detail ? (
-          <span className="block text-xs text-gray-400">{detail}</span>
-        ) : null}
-      </span>
-    </div>
+  // ---------- 首次挂载：从 localStorage 恢复 ----------
+  // 这里必须在 effect 里读，不能放进 useState 初始值：
+  // 服务端渲染时没有 localStorage，初始值不同会导致 hydration 不一致。
+  // 因此显式豁免 react-hooks/set-state-in-effect（这是一次性的外部状态同步）。
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    const list = loadConversations();
+    setConversations(list);
+    const savedActive = loadActiveId();
+    setActiveId(
+      savedActive && list.some((c) => c.id === savedActive)
+        ? savedActive
+        : (list[0]?.id ?? null),
+    );
+    setHydrated(true);
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  // ---------- 变化即保存 ----------
+  useEffect(() => {
+    if (!hydrated) return;
+    saveConversations(conversations);
+    saveActiveId(activeId);
+  }, [conversations, activeId, hydrated]);
+
+  const active = conversations.find((c) => c.id === activeId) ?? null;
+
+  // 局部更新某条消息
+  const patchMessage = useCallback(
+    (convId: string, msgId: string, patch: Partial<Message>) => {
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id !== convId
+            ? c
+            : {
+                ...c,
+                updatedAt: Date.now(),
+                messages: c.messages.map((m) =>
+                  m.id === msgId ? { ...m, ...patch } : m,
+                ),
+              },
+        ),
+      );
+    },
+    [],
   );
-}
 
-export default function Home() {
-  const [health, setHealth] = useState<Health | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API_BASE}/api/health`, { cache: "no-store" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setHealth((await res.json()) as Health);
-    } catch (err) {
-      setHealth(null);
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
+  const appendToMessage = useCallback((convId: string, msgId: string, delta: string) => {
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id !== convId
+          ? c
+          : {
+              ...c,
+              updatedAt: Date.now(),
+              messages: c.messages.map((m) =>
+                m.id === msgId ? { ...m, content: m.content + delta } : m,
+              ),
+            },
+      ),
+    );
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  // ---------- 发送 ----------
+  const send = useCallback(
+    async (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed || streaming) return;
 
-  const allGreen =
-    health?.status === "ok" && health?.db === "ok" && health?.redis === "ok";
+      // 没有会话就现场建一个
+      let convId = activeId;
+      if (!convId || !conversations.some((c) => c.id === convId)) {
+        const created = newConversation();
+        convId = created.id;
+        setConversations((prev) => [created, ...prev]);
+        setActiveId(convId);
+      }
+
+      const userMsg: Message = {
+        id: newId(),
+        role: "user",
+        content: trimmed,
+        status: "done",
+        createdAt: Date.now(),
+      };
+      const aiMsg: Message = {
+        id: newId(),
+        role: "assistant",
+        content: "",
+        status: "streaming",
+        createdAt: Date.now(),
+      };
+
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id !== convId
+            ? c
+            : {
+                ...c,
+                title: c.title === "新对话" ? titleFrom(trimmed) : c.title,
+                messages: [...c.messages, userMsg, aiMsg],
+                updatedAt: Date.now(),
+              },
+        ),
+      );
+
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setStreaming(true);
+
+      try {
+        for await (const ev of streamChat(
+          { message: trimmed, conversation_id: convId },
+          controller.signal,
+        )) {
+          if (ev.type === "delta") {
+            appendToMessage(convId, aiMsg.id, ev.text);
+          } else if (ev.type === "done") {
+            patchMessage(convId, aiMsg.id, { status: "done" });
+          } else if (ev.type === "error") {
+            throw new Error(ev.message);
+          }
+        }
+        // 流结束但没收到 done（例如服务端提前关闭）
+        patchMessage(convId, aiMsg.id, { status: "done" });
+      } catch (err) {
+        if (controller.signal.aborted) {
+          // 用户点了停止：保留已生成内容
+          patchMessage(convId, aiMsg.id, { status: "done" });
+        } else {
+          const msg =
+            err instanceof Error ? err.message : "未知错误，请稍后重试";
+          patchMessage(convId, aiMsg.id, { status: "error", error: msg });
+        }
+      } finally {
+        abortRef.current = null;
+        setStreaming(false);
+      }
+    },
+    [activeId, appendToMessage, conversations, patchMessage, streaming],
+  );
+
+  const stop = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+
+  const retry = useCallback(() => {
+    const conv = conversations.find((c) => c.id === activeId);
+    if (!conv) return;
+
+    const lastUser = [...conv.messages].reverse().find((m) => m.role === "user");
+    if (!lastUser) return;
+
+    // 去掉结尾失败的助手消息，再重发
+    const cleaned = [...conv.messages];
+    while (
+      cleaned.length > 0 &&
+      cleaned[cleaned.length - 1].role === "assistant" &&
+      cleaned[cleaned.length - 1].status === "error"
+    ) {
+      cleaned.pop();
+    }
+    setConversations((prev) =>
+      prev.map((c) => (c.id === conv.id ? { ...c, messages: cleaned } : c)),
+    );
+
+    void send(lastUser.content);
+  }, [activeId, conversations, send]);
+
+  const createConversation = useCallback(() => {
+    if (streaming) return;
+    const created = newConversation();
+    setConversations((prev) => [created, ...prev]);
+    setActiveId(created.id);
+  }, [streaming]);
+
+  const deleteConversation = useCallback(
+    (id: string) => {
+      if (streaming && id === activeId) stop();
+      setConversations((prev) => {
+        const next = prev.filter((c) => c.id !== id);
+        if (id === activeId) setActiveId(next[0]?.id ?? null);
+        return next;
+      });
+    },
+    [activeId, stop, streaming],
+  );
+
+  // ---------- 首屏：等 localStorage 读完再渲染，避免闪烁 ----------
+  if (!hydrated) {
+    return (
+      <div className="flex h-screen">
+        <div className="w-64 shrink-0 border-r border-gray-200 bg-gray-50/60" />
+        <div className="flex flex-1 items-center justify-center">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-gray-800" />
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col justify-center px-6 py-16">
-      <header className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
-          Insight Hub
-        </h1>
-        <p className="mt-1 text-sm text-gray-500">
-          多租户企业知识库 + AI Agent 工作台 · W1 链路自检
-        </p>
-      </header>
-
-      <section className="rounded-xl border border-gray-200 p-6 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span
-              className={`h-2.5 w-2.5 rounded-full ${
-                loading
-                  ? "animate-pulse bg-gray-300"
-                  : allGreen
-                    ? "bg-emerald-500"
-                    : "bg-red-500"
-              }`}
-            />
-            <span className="text-sm font-medium text-gray-700">
-              {loading
-                ? "检测中…"
-                : allGreen
-                  ? "全部正常"
-                  : "存在异常"}
-            </span>
-          </div>
-          <button
-            onClick={() => void load()}
-            disabled={loading}
-            className="rounded-md border border-gray-200 px-3 py-1 text-xs text-gray-600 transition hover:bg-gray-50 disabled:opacity-50"
-          >
-            重新检测
-          </button>
-        </div>
-
-        {loading ? (
-          <div className="space-y-3 py-2">
-            {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="h-9 animate-pulse rounded bg-gray-100" />
-            ))}
-          </div>
-        ) : error ? (
-          <div className="rounded-lg bg-red-50 p-4">
-            <p className="text-sm font-medium text-red-700">后端不可达</p>
-            <p className="mt-1 text-xs text-red-600">{error}</p>
-            <p className="mt-2 text-xs text-red-500">
-              确认 {API_BASE} 上 uvicorn 正在运行：
-              <code className="ml-1 rounded bg-red-100 px-1">
-                .venv\Scripts\python.exe -m uvicorn main:app --reload --port 8000
-              </code>
-            </p>
-          </div>
-        ) : health ? (
-          <div>
-            <Row label="服务状态" value={health.status} />
-            <Row label="PostgreSQL" value={health.db} detail={health.db_detail} />
-            <Row label="Redis" value={health.redis} detail={health.redis_detail} />
-            <Row label="API 版本" value={health.version} />
-          </div>
-        ) : null}
-      </section>
-
-      <p className="mt-6 text-xs text-gray-400">
-        下一步（W2）：把这张页面换成对话页骨架 —— 登录态、会话列表、流式输出。
-      </p>
-    </main>
+    <div className="flex h-screen overflow-hidden bg-gray-100/40">
+      <Sidebar
+        conversations={conversations}
+        activeId={activeId}
+        onSelect={(id) => !streaming && setActiveId(id)}
+        onNew={createConversation}
+        onDelete={deleteConversation}
+      />
+      <ChatPanel
+        conversation={active}
+        streaming={streaming}
+        onSend={(t) => void send(t)}
+        onStop={stop}
+        onRetry={retry}
+        onNew={createConversation}
+      />
+    </div>
   );
 }
