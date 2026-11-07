@@ -59,14 +59,27 @@ uv pip install -r requirements.txt   # 已做过
 
 ```powershell
 cd apps\web
-npm run dev
+npm.cmd run dev
 ```
 
 打开 http://localhost:3000 ，三项指标全绿即成功。
 
-> 若报 `npm : 无法加载文件 ...\npm.ps1，因为在此系统上禁止运行脚本`，二选一：
-> - 改用 `npm.cmd run dev`（不改系统设置，推荐）
-> - 或一次性执行 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
+> 若报 `npm : 无法加载文件 ...\npm.ps1，因为在此系统上禁止运行脚本`，用 `npm.cmd` 即可（不改系统设置）。
+
+---
+
+## 一条命令启动（推荐）
+
+```powershell
+.\scripts\dev.ps1
+```
+
+自动起数据库 → 后端 → 前端 → 等就绪 → 打开浏览器。加 `-NoBrowser` 不弹浏览器，加 `-SkipServices` 跳过数据库检查。
+
+> 详细步骤、数据库操作、故障速查见 **[docs/runbook.md](docs/runbook.md)**。
+
+> **数据库会自动启动**：已配置 Windows 计划任务 `InsightHub-WSL-Services`，用户登录 10 秒后自动拉起
+> WSL 里的 PostgreSQL 和 Redis，无需手动执行 `start-services.sh`。
 
 ---
 
