@@ -1,10 +1,12 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ChatPanel } from "@/components/ChatPanel";
 import { Sidebar } from "@/components/Sidebar";
 import { streamChat } from "@/lib/api";
+import { fetchMe, logout, type UserResponse } from "@/lib/auth";
 import {
   loadActiveId,
   loadConversations,
@@ -20,10 +22,12 @@ import {
 } from "@/lib/types";
 
 export default function Page() {
+  const router = useRouter();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [streaming, setStreaming] = useState(false);
+  const [user, setUser] = useState<UserResponse | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   // ---------- 首次挂载：从 localStorage 恢复 ----------
@@ -43,6 +47,27 @@ export default function Page() {
     setHydrated(true);
   }, []);
   /* eslint-enable react-hooks/set-state-in-effect */
+
+  // ---------- 校验登录态（异步，不阻塞首屏）----------
+  useEffect(() => {
+    let alive = true;
+    void fetchMe()
+      .then((u) => {
+        if (alive) setUser(u);
+      })
+      .catch(() => {
+        if (alive) setUser(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    logout();
+    setUser(null);
+    router.push("/login");
+  }, [router]);
 
   // ---------- 变化即保存 ----------
   useEffect(() => {
@@ -226,6 +251,29 @@ export default function Page() {
     );
   }
 
+  // ---------- 未登录：只给一个入口，不渲染对话 ----------
+  if (!user) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-gray-50 px-6">
+        <div className="text-center">
+          <h1 className="text-xl font-semibold text-gray-900">Insight Hub</h1>
+          <p className="mt-2 text-sm text-gray-500">
+            登录后才能开始对话
+          </p>
+          <a
+            href="/login"
+            className="mt-5 inline-block rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-500"
+          >
+            去登录 / 注册
+          </a>
+          <p className="mt-4 text-xs text-gray-400">
+            后端已开启 JWT 鉴权，受保护接口返回统一错误码
+          </p>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <div className="flex h-screen overflow-hidden bg-gray-100/40">
       <Sidebar
@@ -234,6 +282,8 @@ export default function Page() {
         onSelect={(id) => !streaming && setActiveId(id)}
         onNew={createConversation}
         onDelete={deleteConversation}
+        user={user}
+        onLogout={handleLogout}
       />
       <ChatPanel
         conversation={active}

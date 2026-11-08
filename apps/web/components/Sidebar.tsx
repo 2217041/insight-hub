@@ -8,6 +8,8 @@ type Props = {
   onSelect: (id: string) => void;
   onNew: () => void;
   onDelete: (id: string) => void;
+  user: { email: string; name: string } | null;
+  onLogout: () => void;
 };
 
 export function Sidebar({
@@ -16,6 +18,8 @@ export function Sidebar({
   onSelect,
   onNew,
   onDelete,
+  user,
+  onLogout,
 }: Props) {
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r border-gray-200 bg-gray-50/60">
@@ -67,10 +71,30 @@ export function Sidebar({
         )}
       </div>
 
-      <div className="border-t border-gray-200 px-4 py-3 text-[11px] leading-relaxed text-gray-400">
-        W2 · 骨架阶段
-        <br />
-        历史存在浏览器 localStorage
+      <div className="border-t border-gray-200 px-4 py-3">
+        {user ? (
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="truncate text-xs font-medium text-gray-700">
+                {user.name || user.email}
+              </p>
+              <p className="truncate text-[11px] text-gray-400">{user.email}</p>
+            </div>
+            <button
+              onClick={onLogout}
+              className="shrink-0 rounded-md border border-gray-200 px-2 py-1 text-[11px] text-gray-600 transition hover:bg-white"
+            >
+              退出
+            </button>
+          </div>
+        ) : (
+          <a
+            href="/login"
+            className="block rounded-md bg-gray-900 py-1.5 text-center text-xs font-medium text-white"
+          >
+            去登录
+          </a>
+        )}
       </div>
     </aside>
   );
