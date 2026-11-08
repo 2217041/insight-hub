@@ -227,9 +227,43 @@ Unregister-ScheduledTask -TaskName 'InsightHub-WSL-Services' -Confirm:$false
 | `uvicorn: command not found` | 没走 venv | 用 `.\.venv\Scripts\python.exe -m uvicorn` |
 | 开机后数据库没起来 | 计划任务失败 | 看 `D:\aistudy\wsl-autostart.log` 的 `rc=` |
 | WSL 内存占用越来越大 | 正常，WSL 不主动归还 | `wsl --shutdown` 后重新启动 |
+| `Error parsing package.json file` | 文件带 UTF-8 BOM，Node 的 JSON.parse 不跳过 BOM | 去掉 BOM（见下方说明），再删 `.next` 重启 dev |
+| 改了 `package.json` 后页面全 500 | Turbopack 缓存了旧文件 | 删 `apps/web/.next` 后重启 `npm run dev` |
 
 ---
 
+## 8.1 关于 package.json 的 BOM 问题
+
+**现象**：`npm run dev` 报 `Error parsing package.json file`，指向第 1 行第 1 列，
+错误信息里的 `{` 前面有个看不见的字符（`﻿{`）。
+
+**原因**：文件被保存成了 **UTF-8 带 BOM**。Node 读文件不剥 BOM，`JSON.parse` 遇到 `\uFEFF` 直接抛错。
+
+**什么操作会产生 BOM**：
+- Windows PowerShell 5.1 的 `Set-Content -Encoding UTF8`（它的 "UTF8" 其实是带 BOM 的）；
+- `Out-File -Encoding utf8`、`ConvertTo-Json | Set-Content` 等管道写法；
+- 某些编辑器"另存为 UTF-8 with BOM"。
+
+**怎么检查**：
+
+```powershell
+$b = [System.IO.File]::ReadAllBytes("apps\web\package.json")[0..2]
+($b | ForEach-Object { $_.ToString("X2") }) -join " "
+# 正常应以 7B 0A 20 开头（'{' + 换行）；若以 EF BB BF 开头就是带 BOM
+```
+
+**怎么修**：用编辑器另存为 "UTF-8（无 BOM）"，或：
+
+```powershell
+$p = "apps\web\package.json"
+$t = [System.IO.File]::ReadAllText($p, [System.Text.UTF8Encoding]::new($false))
+[System.IO.File]::WriteAllText($p, $t, [System.Text.UTF8Encoding]::new($false))
+```
+
+**改完必须删 `.next` 再重启**，否则 Turbopack 还缓存着坏文件。
+
+> 顺带记住：`.ps1` 脚本**恰恰相反**，必须带 BOM 才不会乱码（见 `scripts/shot.ps1` 的注释）。
+> 同一个编码问题，两种文件要求相反。
 ## 9. 改代码时的注意点
 
 | 文件 | 改完要做什么 |
