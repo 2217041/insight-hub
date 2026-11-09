@@ -272,4 +272,16 @@ $t = [System.IO.File]::ReadAllText($p, [System.Text.UTF8Encoding]::new($false))
 | `apps/web/app/*.tsx` | 不用重启，热更新 |
 | `apps/api/requirements.txt` | `uv pip install -r requirements.txt` |
 | `apps/web/package.json` | `npm install` |
-| `scripts/*.ps1` | 注意存成 **UTF-8 带 BOM**，否则 PowerShell 5.1 中文乱码报错 |
+| `scripts/*.ps1` | 必须存成 **UTF-8 带 BOM**，否则 PowerShell 5.1 按 GBK 解析中文会语法错 |
+| 任何 `.json` / `.ini` / `.yaml` | **不能**带 BOM：Node 的 `JSON.parse` 会直接失败（`package.json` 已被坑过一次） |
+
+> **PowerShell 5.1 的编码陷阱**（这个坑本仓库踩过三次）：
+> `Set-Content -Encoding UTF8` **永远写 BOM**。它是 PS 5.1 唯一可选的 "UTF8"，没有 `utf8NoBOM`。
+> 所以用脚本改文件时，统一用：
+>
+> ```powershell
+> [System.IO.File]::WriteAllText($path, $text, (New-Object System.Text.UTF8Encoding($false)))
+> ```
+>
+> 写 `.ps1` 时反过来要**带 BOM**：`New-Object System.Text.UTF8Encoding($true)`。
+> **改完立刻用目标工具读一次**（如 `node -e "require('./package.json')"`），别等下一步才发现。
