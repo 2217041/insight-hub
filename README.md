@@ -134,6 +134,23 @@ insight-hub/
 
 ---
 
+## 当前限制（截至 W4）
+
+这些不是 bug，是**明确排期中的欠账**，写在这里避免误解：
+
+| 限制 | 现状 | 什么时候解决 |
+|---|---|---|
+| 会话与消息存在浏览器 localStorage | 按 `userId` 隔离（换账号看不到彼此），但**不跨设备、多标签可能覆盖** | W5 落库到 `conversation`/`message` 表 |
+| 对话回复是**占位内容** | 后端 `mock_answer()` 生成固定 Markdown，不调用任何模型 | W9 接真实模型（外部 API 或本地 vLLM） |
+| 文档上传/解析未实现 | 表结构已就绪，接口没写 | W5（异步入库管道） |
+| 没有 RAG 检索 | `chunk.embedding` 与 `tsv` 列已建，还没写入与检索 | W10–W13 |
+| 没有 Agent | `agent_run` 表已建 | W14–W17 |
+
+> **不训练模型**：本项目走「调用外部大模型 API + 自研 RAG/Agent 编排」，
+> 可选本地部署 vLLM 做推理实验。理由见 [docs/tech-stack.md](docs/tech-stack.md)。
+
+---
+
 ## 本地环境备注
 
 - PostgreSQL：`insight` / `insight`，库名 `insight`，已启用 pgvector 0.6.0

@@ -25,30 +25,16 @@ export default function Page() {
   const router = useRouter();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [hydrated, setHydrated] = useState(false);
+  /** 登录态是否已确认（避免未登录闸门闪一下） */
+  const [authChecked, setAuthChecked] = useState(false);
+  /** 当前会话数据属于哪个用户；-1 表示还没加载 */
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [user, setUser] = useState<UserResponse | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const userId = user?.id ?? null;
 
-  // ---------- 首次挂载：从 localStorage 恢复 ----------
-  // 这里必须在 effect 里读，不能放进 useState 初始值：
-  // 服务端渲染时没有 localStorage，初始值不同会导致 hydration 不一致。
-  // 因此显式豁免 react-hooks/set-state-in-effect（这是一次性的外部状态同步）。
-  /* eslint-disable react-hooks/set-state-in-effect */
-  useEffect(() => {
-    const list = loadConversations();
-    setConversations(list);
-    const savedActive = loadActiveId();
-    setActiveId(
-      savedActive && list.some((c) => c.id === savedActive)
-        ? savedActive
-        : (list[0]?.id ?? null),
-    );
-    setHydrated(true);
-  }, []);
-  /* eslint-enable react-hooks/set-state-in-effect */
-
-  // ---------- 校验登录态（异步，不阻塞首屏）----------
+  // ---------- 校验登录态 ----------
   useEffect(() => {
     let alive = true;
     void fetchMe()
@@ -57,24 +43,55 @@ export default function Page() {
       })
       .catch(() => {
         if (alive) setUser(null);
+      })
+      .finally(() => {
+        if (alive) setAuthChecked(true);
       });
     return () => {
       alive = false;
     };
   }, []);
 
+  // ---------- 按用户加载本地会话 ----------
+  // 关键修复：数据以 userId 为命名空间，换账号要换存储桶，否则看到的是别人的会话。
+  // 真正的解法是会话落库（W5），这里只是让本地缓存不串号。
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (!authChecked) return;
+    if (!userId) {
+      setConversations([]);
+      setActiveId(null);
+      setLoadedFor(null);
+      return;
+    }
+    if (loadedFor === userId) return;
+
+    const list = loadConversations(userId);
+    const savedActive = loadActiveId(userId);
+    setConversations(list);
+    setActiveId(
+      savedActive && list.some((c) => c.id === savedActive)
+        ? savedActive
+        : (list[0]?.id ?? null),
+    );
+    setLoadedFor(userId);
+  }, [authChecked, userId, loadedFor]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
   const handleLogout = useCallback(() => {
     logout();
     setUser(null);
+    setLoadedFor(null);
+    setConversations([]);
     router.push("/login");
   }, [router]);
 
-  // ---------- 变化即保存 ----------
+  // ---------- 变化即保存（只存到当前用户桶里）----------
   useEffect(() => {
-    if (!hydrated) return;
-    saveConversations(conversations);
-    saveActiveId(activeId);
-  }, [conversations, activeId, hydrated]);
+    if (!userId || loadedFor !== userId) return;
+    saveConversations(userId, conversations);
+    saveActiveId(userId, activeId);
+  }, [conversations, activeId, userId, loadedFor]);
 
   const active = conversations.find((c) => c.id === activeId) ?? null;
 
@@ -240,7 +257,7 @@ export default function Page() {
   );
 
   // ---------- 首屏：等 localStorage 读完再渲染，避免闪烁 ----------
-  if (!hydrated) {
+  if (!authChecked) {
     return (
       <div className="flex h-screen">
         <div className="w-64 shrink-0 border-r border-gray-200 bg-gray-50/60" />
