@@ -47,6 +47,19 @@ if (Test-Port 8000) {
     )
 }
 
+# ---------- 2.5 后台 worker（文档解析）----------
+Write-Host "[2.5/3] 启动 arq worker ..." -ForegroundColor Yellow
+$workerRunning = @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like '*arq*' }).Count -gt 0
+if ($workerRunning) {
+    Write-Host "      worker 已在运行，跳过" -ForegroundColor DarkGray
+} else {
+    Start-Process powershell -ArgumentList @(
+        "-NoExit", "-NoProfile",
+        "-Command", "`$host.UI.RawUI.WindowTitle='Insight Hub Worker'; cd '$root\apps\api'; .\.venv\Scripts\python.exe -m arq app.worker.WorkerSettings"
+    )
+}
+
 # ---------- 3. 前端 ----------
 Write-Host "[3/3] 启动 Next.js ..." -ForegroundColor Yellow
 if (Test-Port 3000) {

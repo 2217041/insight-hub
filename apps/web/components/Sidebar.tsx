@@ -25,13 +25,22 @@ export function Sidebar({
     <aside className="flex w-64 shrink-0 flex-col border-r border-gray-200 bg-gray-50/60">
       <div className="flex items-center justify-between px-4 py-4">
         <span className="text-sm font-semibold text-gray-800">Insight Hub</span>
-        <button
-          onClick={onNew}
-          className="rounded-md bg-gray-900 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-gray-700"
-          title="新建对话"
-        >
-          + 新对话
-        </button>
+        <div className="flex items-center gap-1.5">
+          <a
+            href="/documents"
+            className="rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-600 transition hover:bg-white"
+            title="知识库文档"
+          >
+            文档
+          </a>
+          <button
+            onClick={onNew}
+            className="rounded-md bg-gray-900 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-gray-700"
+            title="新建对话"
+          >
+            + 新对话
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 pb-4">

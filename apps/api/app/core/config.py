@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "Insight Hub API"
-    app_version: str = "0.3.0"
+    app_version: str = "0.5.0"
 
     database_url: str = "postgresql+psycopg://insight:insight@127.0.0.1:5432/insight"
     redis_url: str = "redis://127.0.0.1:6379/0"
@@ -25,6 +25,15 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ]
+
+    # ---- W5：文件上传与异步管道 ----
+    storage_dir: str = "data/uploads"
+    upload_max_bytes: int = 20 * 1024 * 1024  # 20 MB
+    allowed_extensions: list[str] = [".txt", ".md", ".markdown", ".pdf"]
+    # 文档列表缓存（秒）；写操作会主动失效
+    doc_list_cache_ttl: int = 30
+    # 单租户每分钟最多上传次数
+    upload_rate_per_minute: int = 10
 
 
 @lru_cache(maxsize=1)

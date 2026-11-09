@@ -7,6 +7,7 @@ db 层不知道上面任何东西，这样才能被复用和测试。
 from __future__ import annotations
 
 from collections.abc import Iterator
+from contextlib import contextmanager
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
@@ -36,11 +37,36 @@ def get_db() -> Iterator[Session]:
         db.close()
 
 
-def set_tenant(db: Session, tenant_id: str) -> None:
+def set_tenant(db: Session, tenant_id) -> None:
     """设置 RLS 的租户上下文。
 
-    **必须用 SET LOCAL**：它的作用域是当前事务。
-    用 SET 是会话级的，连接放回池子后下一个请求会继承上一个租户的上下文——
-    那是最危险的串租户 bug，而且极难复现。
+    **必须用事务级设置**（第三个参数 `true` = is_local，等价于 SET LOCAL）：
+    会话级设置会随连接回到池子，下一个请求就可能读到上一个租户的数据。
+
+    **为什么不用 `SET LOCAL app.tenant_id = :tid`**：
+    PostgreSQL 的 SET 语句不接受参数绑定，写成 `$1` 会直接语法报错。
+    `set_config(name, value, is_local)` 是函数调用，可以正常绑定参数。
     """
-    db.execute(text("SET LOCAL app.tenant_id = :tid"), {"tid": str(tenant_id)})
+    db.execute(
+        text("SELECT set_config('app.tenant_id', :tid, true)"),
+        {"tid": str(tenant_id)},
+    )
+
+
+@contextmanager
+def tenant_session(tenant_id) -> Iterator[Session]:
+    """一次性租户会话：自动 SET LOCAL、提交/回滚、关闭。
+
+    worker 里每个步骤开一个，避免"commit 之后 SET LOCAL 失效"的坑——
+    `SET LOCAL` 随事务结束而失效，长事务里中间 commit 会丢掉租户上下文。
+    """
+    db = SessionLocal()
+    try:
+        set_tenant(db, tenant_id)
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()

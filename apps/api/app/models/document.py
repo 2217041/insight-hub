@@ -4,7 +4,9 @@
 1. `content_hash` + 唯一约束 → 同一租户重复上传同一文件不会产生两条记录（幂等）；
 2. `status` 用字符串而不是枚举类型（PG enum 改起来要迁移，字符串+应用层校验更灵活）；
 3. `deleted_at` 软删除：向量块可以保留一段时间，误删可恢复；
-4. `acl_tags` 用 JSONB：权限标签可能随业务变化，不适合拆成关联表。
+4. `acl_tags` 用 JSONB：权限标签可能随业务变化，不适合拆成关联表；
+5. **W5 新增**：`progress` / `chunk_count` / `storage_path`，
+   前端靠 progress 画进度条，worker 靠 storage_path 找到原文件。
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -47,9 +50,15 @@ class Document(Base):
     mime: Mapped[str] = mapped_column(String(100), default="")
     size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
     content_hash: Mapped[str] = mapped_column(String(64), default="")
-    # pending / parsing / chunking / embedding / ready / failed
+    # pending / parsing / chunking / ready / failed
     status: Mapped[str] = mapped_column(String(20), default="pending")
     error_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # ---- W5 ----
+    progress: Mapped[int] = mapped_column(Integer, default=0)
+    chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    storage_path: Mapped[str] = mapped_column(String(500), default="")
+
     acl_tags: Mapped[list] = mapped_column(JSONB, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

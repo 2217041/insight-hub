@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import RequestContextMiddleware, configure_logging
-from app.routers import auth, chat, health
+from app.routers import auth, chat, documents, health
 
 # 必须在建表前 import，否则 Base.metadata 里没有这些表
 from app.models import user as _user_model  # noqa: F401
@@ -60,6 +60,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(chat.router)
+    app.include_router(documents.router)
 
     @app.get("/", include_in_schema=False)
     def root() -> dict:
