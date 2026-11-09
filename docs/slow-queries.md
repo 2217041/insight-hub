@@ -92,7 +92,7 @@
 ## 四、复现
 
 ```powershell
-cd D:\aistudy\insight-hub\apps\api
+cd D:\aistudy\texun-project\repo\apps\api
 $env:PYTHONIOENCODING = 'utf-8'
 .\.venv\Scripts\python.exe -m scripts.bench_indexes
 ```

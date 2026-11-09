@@ -83,7 +83,7 @@ def tenant_scope(db: Session, tenant_id: str):
 
 ## 四、验证结果（2026-11-09 实测）
 
-脚本：`D:\aistudy\sql\verify-rls.sql`
+脚本：`D:\aistudy\texun-project\infra\sql\verify-rls.sql`
 
 | 步骤 | 操作 | 结果 |
 |---|---|---|

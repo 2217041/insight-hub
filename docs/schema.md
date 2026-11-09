@@ -142,4 +142,4 @@ cd apps/api
 | conversation | 2,000 |
 | message | 200,100 |
 
-复现：`psql -f sql/seed.sql`（脚本在 `D:\aistudy\sql\`）。
+复现：`psql -f sql/seed.sql`（脚本在 `D:\aistudy\texun-project\infra\sql\`）。

@@ -29,7 +29,7 @@
 ## 1. 日常启动（一条命令）
 
 ```powershell
-cd D:\aistudy\insight-hub
+cd D:\aistudy\texun-project\repo
 .\scripts\dev.ps1
 ```
 
@@ -71,7 +71,7 @@ redis   : PONG
 ### 2.2 后端
 
 ```powershell
-cd D:\aistudy\insight-hub\apps\api
+cd D:\aistudy\texun-project\repo\apps\api
 .\.venv\Scripts\python.exe -m uvicorn main:app --reload --port 8000
 ```
 
@@ -81,7 +81,7 @@ cd D:\aistudy\insight-hub\apps\api
 ### 2.3 前端
 
 ```powershell
-cd D:\aistudy\insight-hub\apps\web
+cd D:\aistudy\texun-project\repo\apps\web
 npm.cmd run dev
 ```
 
@@ -178,8 +178,8 @@ wsl --shutdown
 |---|---|
 | 任务名 | `InsightHub-WSL-Services` |
 | 触发 | 当前用户**登录时**，延迟 10 秒 |
-| 动作 | `wscript.exe "D:\aistudy\start-wsl-services.vbs"` |
-| VBS 做的事 | 再等 8 秒 → 隐藏窗口执行 `wsl ... start-services.sh` → 把返回码写进 `D:\aistudy\wsl-autostart.log` |
+| 动作 | `wscript.exe "D:\aistudy\texun-project\infra\start-wsl-services.vbs"` |
+| VBS 做的事 | 再等 8 秒 → 隐藏窗口执行 `wsl ... start-services.sh` → 把返回码写进 `D:\aistudy\texun-project\infra\logs\wsl-autostart.log` |
 
 **为什么用 VBS 包一层**：直接用 `schtasks` 调 `wsl.exe` 会闪一个黑框；VBS 的 `Run(..., 0, True)` 可以完全隐藏窗口，同时还能等到返回码写日志。
 
@@ -188,7 +188,7 @@ wsl --shutdown
 ```powershell
 Get-ScheduledTask -TaskName 'InsightHub-WSL-Services' | Select-Object State
 Get-ScheduledTaskInfo -TaskName 'InsightHub-WSL-Services' | Select-Object LastRunTime, LastTaskResult
-Get-Content D:\aistudy\wsl-autostart.log -Tail 3
+Get-Content D:\aistudy\texun-project\infra\logs\wsl-autostart.log -Tail 3
 ```
 
 > `LastTaskResult = 0` 且日志里 `rc=0` 才算成功。
@@ -209,7 +209,7 @@ Unregister-ScheduledTask -TaskName 'InsightHub-WSL-Services' -Confirm:$false
 1. 装 Node 22 LTS、Python、Git、uv；
 2. `wsl --install` 装内核（或下载 MSI），重启；
 3. 导入 Ubuntu：`wsl --import Ubuntu-24.04 D:\wsl\Ubuntu-24.04 <rootfs.tar.gz> --version 2`；
-4. 跑初始化脚本：`wsl -d Ubuntu-24.04 -u root -- bash /mnt/d/aistudy/wsl-setup.sh`；
+4. 跑初始化脚本：`wsl -d Ubuntu-24.04 -u root -- bash /mnt/d/aistudy/texun-project/infra/wsl-setup.sh`；
 5. `git clone` 仓库，`uv venv --python 3.12 .venv && uv pip install -r requirements.txt`，`npm install`；
 6. 重建计划任务（见第 6 节）。
 
@@ -225,7 +225,7 @@ Unregister-ScheduledTask -TaskName 'InsightHub-WSL-Services' -Confirm:$false
 | `端口被占用` | 上次的进程没关 | `Get-NetTCPConnection -LocalPort 8000 -State Listen` → `Stop-Process -Id <PID>` |
 | `npm : 无法加载文件 npm.ps1` | PowerShell 执行策略 | 用 `npm.cmd` |
 | `uvicorn: command not found` | 没走 venv | 用 `.\.venv\Scripts\python.exe -m uvicorn` |
-| 开机后数据库没起来 | 计划任务失败 | 看 `D:\aistudy\wsl-autostart.log` 的 `rc=` |
+| 开机后数据库没起来 | 计划任务失败 | 看 `D:\aistudy\texun-project\infra\logs\wsl-autostart.log` 的 `rc=` |
 | WSL 内存占用越来越大 | 正常，WSL 不主动归还 | `wsl --shutdown` 后重新启动 |
 | `Error parsing package.json file` | 文件带 UTF-8 BOM，Node 的 JSON.parse 不跳过 BOM | 去掉 BOM（见下方说明），再删 `.next` 重启 dev |
 | 改了 `package.json` 后页面全 500 | Turbopack 缓存了旧文件 | 删 `apps/web/.next` 后重启 `npm run dev` |
