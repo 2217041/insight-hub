@@ -20,8 +20,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import RequestContextMiddleware, configure_logging
-from app.db.base import Base
-from app.db.session import engine
 from app.routers import auth, chat, health
 
 # 必须在建表前 import，否则 Base.metadata 里没有这些表
@@ -33,8 +31,8 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     configure_logging()
-    # W3 临时方案：直接建表。W4 引入 Alembic 后删掉这两行。
-    Base.metadata.create_all(bind=engine)
+    # 建表交给 Alembic（migrations/），启动时不再 create_all。
+    # 部署流程：先 alembic upgrade head，再启动服务。
     yield
 
 

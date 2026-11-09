@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
@@ -34,3 +34,13 @@ def get_db() -> Iterator[Session]:
         yield db
     finally:
         db.close()
+
+
+def set_tenant(db: Session, tenant_id: str) -> None:
+    """设置 RLS 的租户上下文。
+
+    **必须用 SET LOCAL**：它的作用域是当前事务。
+    用 SET 是会话级的，连接放回池子后下一个请求会继承上一个租户的上下文——
+    那是最危险的串租户 bug，而且极难复现。
+    """
+    db.execute(text("SET LOCAL app.tenant_id = :tid"), {"tid": str(tenant_id)})

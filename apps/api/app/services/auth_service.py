@@ -21,7 +21,7 @@ from app.core.security import (
     verify_password,
 )
 from app.models.user import User
-from app.repos import user_repo
+from app.repos import tenant_repo, user_repo
 from app.schemas.auth import TokenResponse
 
 
@@ -29,9 +29,23 @@ def register(db: Session, *, email: str, password: str, name: str = "") -> User:
     if user_repo.get_by_email(db, email):
         # 409 而不是 400：这是"资源已存在"，不是参数错误
         raise AppError(ErrorCode.CONFLICT, "该邮箱已注册", http_status=409)
-    return user_repo.create(
-        db, email=email, name=name or email.split("@")[0], password_hash=hash_password(password)
+
+    # W4 起用户必须属于某个租户。注册即创建一个个人租户（团队版由邀请流程加入）。
+    # 两个插入放在同一个事务里：任一步失败都不能留下"有租户没用户"的脏数据。
+    display = name or email.split("@")[0]
+    tenant = tenant_repo.create(db, name=f"{display} 的空间")
+    user = user_repo.create(
+        db,
+        tenant_id=tenant.id,
+        email=email,
+        name=display,
+        password_hash=hash_password(password),
+        role="owner",
+        commit=False,
     )
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 def login(db: Session, *, email: str, password: str) -> TokenResponse:

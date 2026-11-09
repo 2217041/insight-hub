@@ -90,6 +90,8 @@ insight-hub/
 ├─ apps/
 │  ├─ api/                 # FastAPI 后端（W3 起分层）
 │  │  ├─ main.py           # 只做装配：中间件 / 异常 / 路由
+│  │  ├─ migrations/       # Alembic 迁移（建表与 RLS）
+│  │  ├─ scripts/          # 造数与索引基准测试
 │  │  └─ app/
 │  │     ├─ core/          # config / security / errors / logging / deps
 │  │     ├─ db/            # engine / session / Base
@@ -107,6 +109,9 @@ insight-hub/
 │  ├─ prd.md               # 产品需求
 │  ├─ tech-stack.md        # 技术选型与理由
 │  ├─ errors.md            # 错误码表
+│  ├─ schema.md            # 数据模型与设计决策
+│  ├─ slow-queries.md      # 索引实验（10 组实测）
+│  ├─ tenant-isolation.md  # 多租户 RLS 方案与验证
 │  ├─ w2.md / w3.md        # 每周设计记录
 │  └─ weekly/              # 周复盘
 ├─ scripts/                # dev.ps1 / dev.cmd / shot.ps1
@@ -121,7 +126,7 @@ insight-hub/
 - [x] **W1** 环境 + 骨架 + 健康检查全链路
 - [x] **W2** 对话骨架与 SSE 流式输出
 - [x] **W3** 后端分层 + 统一错误码 + JWT 鉴权 + OpenAPI 生成前端类型
-- [ ] **W4** 数据建模与索引（8 张表 + Alembic + 慢查询优化）
+- [x] **W4** 数据建模与索引（8 张表 + Alembic 迁移 + 多租户 RLS + 10 组索引实验）
 - [ ] **W6** MVP 上线（鉴权 + 文档上传 + 简单问答 + 公网访问）
 - [ ] **W13** RAG 达标（混合检索 + 重排 + 引用 + 离线评测，recall@5 ≥ 0.85）
 - [ ] **W17** Agent 可用（LangGraph + 工具调用 + 人工审批，任务成功率 ≥ 80%）

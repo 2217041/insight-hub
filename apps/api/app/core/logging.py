@@ -48,10 +48,12 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
         except Exception:
+            # 注意：异常路径**不要** reset 上下文。
+            # 全局异常处理器在中间件之外运行，reset 了它就拿不到 request_id，
+            # 错误体里会变成 "-"，线上根本无法定位。
             logger.exception("request_failed %s %s", request.method, request.url.path)
             raise
-        finally:
-            _request_id.reset(token)
+        _request_id.reset(token)
 
         cost_ms = (time.perf_counter() - started) * 1000
         response.headers["X-Request-Id"] = rid

@@ -22,9 +22,32 @@ def get_by_id(db: Session, user_id: uuid.UUID) -> User | None:
     return db.get(User, user_id)
 
 
-def create(db: Session, *, email: str, name: str, password_hash: str) -> User:
-    user = User(email=email.lower(), name=name, password_hash=password_hash)
+def create(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    email: str,
+    name: str,
+    password_hash: str,
+    role: str = "member",
+    commit: bool = True,
+) -> User:
+    """创建用户。
+
+    `commit=False` 用于"创建租户 + 创建用户"这种需要原子性的场景：
+    由调用方统一提交，避免出现"租户建了但用户没建"的脏数据。
+    """
+    user = User(
+        tenant_id=tenant_id,
+        email=email.lower(),
+        name=name,
+        password_hash=password_hash,
+        role=role,
+    )
     db.add(user)
-    db.commit()
-    db.refresh(user)
+    if commit:
+        db.commit()
+        db.refresh(user)
+    else:
+        db.flush()
     return user
