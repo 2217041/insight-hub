@@ -1,0 +1,108 @@
+# 生产编排：db + redis + api + worker + web + nginx
+#
+# 注意几件事：
+# 1. 每个服务都有健康检查，依赖用 condition: service_healthy 而不是裸 depends_on
+#    （裸 depends_on 只保证"容器启动"，不保证"服务可用"，会导致迁移时连不上库）
+# 2. api 启动前先跑 alembic upgrade head —— 迁移必须在进程起来之前完成
+# 3. worker 复用 api 镜像，只是换 command
+# 4. 只有 nginx 暴露端口，db/redis 不出网
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: ih-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-insight}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-insight}
+      POSTGRES_DB: ${POSTGRES_DB:-insight}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-insight} -d ${POSTGRES_DB:-insight}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: ih-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  api:
+    build: ./apps/api
+    container_name: ih-api
+    environment: &api-env
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-insight}:${POSTGRES_PASSWORD:-insight}@db:5432/${POSTGRES_DB:-insight}
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:?需要在 .env 里设置 JWT_SECRET}
+      STORAGE_DIR: /app/data/uploads
+    volumes:
+      - uploads:/app/data/uploads
+    # 迁移先于服务启动：Alembic 是幂等提升，重复执行安全
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+  worker:
+    build: ./apps/api
+    container_name: ih-worker
+    environment: *api-env
+    volumes:
+      - uploads:/app/data/uploads
+    command: ["python", "-m", "arq", "app.worker.WorkerSettings"]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./apps/web
+      args:
+        NEXT_PUBLIC_API_BASE: ""
+    container_name: ih-web
+    environment:
+      TZ: Asia/Shanghai
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: ih-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - web
+      - api
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  uploads:

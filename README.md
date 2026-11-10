@@ -128,7 +128,9 @@ insight-hub/
 - [x] **W3** 后端分层 + 统一错误码 + JWT 鉴权 + OpenAPI 生成前端类型
 - [x] **W4** 数据建模与索引（8 张表 + Alembic 迁移 + 多租户 RLS + 10 组索引实验）
 - [x] **W5** 异步管道（上传 → arq 队列 → 解析分块 → SSE 进度 + Redis 缓存/限流）
-- [ ] **W6** MVP 上线（文档上传 + 简单问答 + 公网访问）
+- [x] **W5.5** 会话落库（替代 localStorage，换设备可继续）
+- [x] **W6** 容器化部署（Dockerfile ×2 + compose + Nginx + CI，本地全栈已验证）
+- [ ] **W6.5** 上公网（需要一台云服务器，步骤见 docs/deploy.md）
 - [ ] **W13** RAG 达标（混合检索 + 重排 + 引用 + 离线评测，recall@5 ≥ 0.85）
 - [ ] **W17** Agent 可用（LangGraph + 工具调用 + 人工审批，任务成功率 ≥ 80%）
 - [ ] **W20** 可扩展（压测 + 降级 + 成本看板）
@@ -141,7 +143,7 @@ insight-hub/
 
 | 限制 | 现状 | 什么时候解决 |
 |---|---|---|
-| 会话与消息存在浏览器 localStorage | 按 `userId` 隔离，但**不跨设备**、多标签可能覆盖 | W9（接真实模型时一并落库） |
+| 会话与消息已落库 | 支持多设备；但还没有会话搜索 / 重命名 | W9 |
 | 对话回复是**占位内容** | 后端 `mock_answer()` 生成固定 Markdown，不调用任何模型 | W9 接真实模型（外部 API 或本地 vLLM） |
 | 文档解析只支持 .md/.txt | PDF（双栏/表格/OCR）还没做 | W10 |
 | 没有 RAG 检索 | `chunk.embedding` 与 `tsv` 列已建，还没写入与检索 | W10–W13 |
@@ -157,3 +159,20 @@ insight-hub/
 - PostgreSQL：`insight` / `insight`，库名 `insight`，已启用 pgvector 0.6.0
 - Redis：`redis://127.0.0.1:6379/0`（本地开发无密码）
 - WSL 发行版数据目录：`D:\wsl\Ubuntu-24.04`
+---
+
+## 部署（容器化，W6）
+
+```bash
+cp .env.example .env          # 填 JWT_SECRET 和数据库密码
+docker compose up -d --build  # db + redis + api + worker + web + nginx
+curl http://127.0.0.1/api/health
+```
+
+- 编排文件：[docker-compose.yml](docker-compose.yml)
+- 前端构建时 `NEXT_PUBLIC_API_BASE=""`，浏览器走同源 `/api`，由 Nginx 反代
+- 迁移由 api 容器启动命令自动执行（`alembic upgrade head && uvicorn ...`）
+- 完整步骤与运维命令：[docs/deploy.md](docs/deploy.md)
+
+> 本地已在 WSL 的 Docker Engine 上跑通整套编排（注册 → 上传 → 解析 → SSE → 越权 404）。
+> **公网地址需要一台云服务器**，按 docs/deploy.md 操作即可。
