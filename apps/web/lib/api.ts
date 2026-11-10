@@ -1,3 +1,4 @@
+import { getAccessToken } from "./auth";
 import type { StreamEvent } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
@@ -25,9 +26,14 @@ export async function* streamChat(
 ): AsyncGenerator<StreamEvent> {
   let res: Response;
   try {
+    const token = getAccessToken();
     res = await fetch(`${API_BASE}/api/chat/stream`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        // W5 收尾：对话接口需要登录，消息要落库到该用户所属租户
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify(payload),
       signal,
     });

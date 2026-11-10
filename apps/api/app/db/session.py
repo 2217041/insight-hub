@@ -20,6 +20,9 @@ engine = create_engine(
     pool_size=5,
     max_overflow=5,
     echo=False,
+    # 数据库没起时要**快速失败**，而不是让请求挂到超时：
+    # 没有 connect_timeout 时 psycopg 会一直等，健康检查表现为"超时"而不是"数据库不可用"。
+    connect_args={"connect_timeout": 3},
 )
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
