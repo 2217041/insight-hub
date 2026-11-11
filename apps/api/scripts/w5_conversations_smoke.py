@@ -8,12 +8,13 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import uuid
 
 import httpx
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("BASE", "http://127.0.0.1:8000")
 
 
 def new_user(client: httpx.Client) -> tuple[str, str]:

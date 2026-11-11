@@ -228,3 +228,64 @@ sudo certbot certonly --standalone -d your-domain.com
 
 **没有域名也能用**：直接用 `http://<IP>/`，只是没有 HTTPS。
 ICP 备案要求只针对域名，IP 访问不需要——所以先用 IP 验证功能是可行的。
+---
+
+## 八、本地构建 + 传输镜像（无 Docker Hub 的服务器用这个）
+
+有些云服务器访问不了 Docker Hub（`registry-1.docker.io` 超时），
+或者内存太小（1 GB）根本跑不动 `next build`。这时在本地构建、只传镜像：
+
+```powershell
+# 1. 本地构建（在仓库根目录的 WSL 里）
+docker build -t insight-hub-api:latest ./apps/api
+docker build -t insight-hub-web:latest ./apps/web
+
+# 2. 导出成压缩包（api 321MB + web 335MB -> 约 152MB）
+docker save insight-hub-api:latest insight-hub-web:latest | gzip -1 > images.tar.gz
+docker save pgvector/pgvector:pg16 redis:7-alpine nginx:1.27-alpine | gzip -1 > images2.tar.gz
+
+# 3. 传到服务器（scp 会因 Windows 密钥权限报错，用 SFTP 或先 icacls 修权限）
+python infra/tools/sftp_put.py images.tar.gz /tmp/images.tar.gz
+```
+
+```bash
+# 4. 服务器上加载并启动（不构建）
+gunzip -c /tmp/images.tar.gz | docker load
+gunzip -c /tmp/images2.tar.gz | docker load
+cd /opt/insight-hub && docker compose up -d --no-build
+docker compose restart nginx     # 关键：见下面第 3 条
+```
+
+### 这条路踩过的三个坑
+
+| # | 现象 | 原因 | 处理 |
+|---|---|---|---|
+| 1 | `No such image: insight-hub-worker:latest` | worker 只写了 `build:` 没写 `image:`，compose 按 `<项目>-<服务>` 推导镜像名 | 在 compose 里给 api/worker/web **显式写 `image:`** |
+| 2 | api 无限重启，日志 `type "vector" does not exist` | 导出的镜像是在"迁移加扩展"那次修复**之前**构建的 | 改完迁移必须**重新构建镜像**，旧镜像里烤的是旧迁移 |
+| 3 | `/` 正常但 `/api/*` 502 | nginx 启动时解析了一次 upstream IP；`--force-recreate` 换了容器 IP | `docker compose restart nginx` 让它重新解析 |
+
+> 第 3 条只在"重建容器但不重启 nginx"时出现，很容易误判成后端挂了。
+
+### 镜像大小对比
+
+| 版本 | 大小 | 说明 |
+|---|---|---|
+| 优化前 web | 1.16 GB | 把 node_modules 整个拷进运行层 |
+| **standalone 后** | **335 MB** | 只带运行期需要的依赖 |
+
+同时 `next build` 的内存需求也降低了——这对 1–2 GB 的机器是决定性的。
+
+---
+
+## 九、当前线上环境（2026-11-12）
+
+| 项 | 值 |
+|---|---|
+| 地址 | http://8.136.244.138/ |
+| 实例 | 2 核 / 1736 MB / 40 GB（+2 GB swap） |
+| 系统 | Ubuntu 22.04.5 LTS |
+| Docker | 29.1.3 + Compose 2.40.3（apt 安装，非官方脚本） |
+| 部署方式 | 本地构建 → 传镜像 → `up --no-build` |
+| 已验证 | 健康检查、注册登录、文档上传解析、SSE 进度、会话落库、越权 404 |
+
+**重启后自动恢复**：所有服务都是 `restart: unless-stopped`，机器重启会自动拉起。

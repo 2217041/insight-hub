@@ -38,6 +38,9 @@ services:
     restart: unless-stopped
 
   api:
+    # 显式镜像名：否则 compose 会按 <项目>-<服务> 推导，
+    # worker 复用同一个镜像时就会找不到（踩过）
+    image: insight-hub-api:latest
     build: ./apps/api
     container_name: ih-api
     environment: &api-env
@@ -65,6 +68,7 @@ services:
     restart: unless-stopped
 
   worker:
+    image: insight-hub-api:latest
     build: ./apps/api
     container_name: ih-worker
     environment: *api-env
@@ -79,6 +83,7 @@ services:
     restart: unless-stopped
 
   web:
+    image: insight-hub-web:latest
     build:
       context: ./apps/web
       args:
