@@ -49,6 +49,17 @@ class Settings(BaseSettings):
     llm_price_in_per_1m: float = 1.0
     llm_price_out_per_1m: float = 2.0
 
+    # ---- W11：向量化与检索 ----
+    # local = fastembed(ONNX) 本地模型；openai = 任意兼容 /embeddings 的 API
+    embedding_provider: str = "local"
+    embedding_model: str = "BAAI/bge-small-zh-v1.5"
+    embedding_dim: int = 512
+    embedding_cache_dir: str = "data/models"
+    embedding_batch: int = 32
+    # 检索：召回候选数与最终给模型的块数
+    retrieval_candidates: int = 20
+    retrieval_top_k: int = 5
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

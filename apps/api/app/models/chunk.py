@@ -27,7 +27,7 @@ from pgvector.sqlalchemy import Vector
 
 from app.db.base import Base
 
-EMBEDDING_DIM = 1024
+EMBEDDING_DIM = 512  # bge-small-zh-v1.5；换模型必须同步迁移列类型
 
 
 class Chunk(Base):

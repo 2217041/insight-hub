@@ -23,8 +23,7 @@ from app.core.config import get_settings
 from app.core.deps import get_current_user
 from app.models.user import User
 from app.repos import conversation_repo
-from app.services import chat_service
-from app.services import llm
+from app.services import chat_service, llm, retrieval
 from app.services.db_ops import run_in_tenant_session
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -103,7 +102,19 @@ async def chat_stream(
     )
 
     provider = llm.get_provider()
-    messages = llm.build_messages(history, req.message)
+
+    # ---- W11：先检索，再生成 ----
+    # 检索涉及 CPU 密集的向量化，放线程池，避免阻塞事件循环
+    retrieved: list[dict] = await asyncio.to_thread(
+        lambda: run_in_tenant_session(
+            user.tenant_id,
+            lambda db: retrieval.search(
+                db, tenant_id=user.tenant_id, query=req.message
+            ),
+        )
+    )
+    context, citations = retrieval.build_context(retrieved)
+    messages = llm.build_messages(history, req.message, context)
     message_id = str(uuid.uuid4())
 
     async def gen() -> AsyncIterator[str]:
@@ -119,8 +130,31 @@ async def chat_stream(
                     "message_id": message_id,
                     "conversation_id": conversation_id,
                     "provider": provider.name,
+                    "retrieved": len(citations),
                 }
             )
+
+            # 没有检索到任何块 → 直接拒答，不要浪费一次模型调用（也避免模型硬编）
+            if not context:
+                refusal = (
+                    "知识库中未找到相关内容。\n\n"
+                    "可能的原因：\n"
+                    "1. 还没有上传相关文档，或文档仍在解析中；\n"
+                    "2. 换个说法再问一次（试试文档里出现的具体名词/编号）。"
+                )
+                parts.append(refusal)
+                yield chat_service.sse({"type": "delta", "text": refusal})
+                completed = True
+                yield chat_service.sse(
+                    {
+                        "type": "done",
+                        "message_id": message_id,
+                        "conversation_id": conversation_id,
+                        "provider": "refusal",
+                        "usage": {"prompt": 0, "completion": 0, "elapsed_ms": 0},
+                    }
+                )
+                return
 
             async for text in provider.stream(
                 messages,
@@ -172,6 +206,7 @@ async def chat_stream(
                         conversation_id=conv_uuid,
                         role="assistant",
                         content=content,
+                        citations=citations,
                         prompt_tokens=prompt_tokens,
                         completion_tokens=completion_tokens,
                         cost=cost,

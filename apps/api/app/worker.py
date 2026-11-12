@@ -17,6 +17,7 @@ W10 的变化：
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 
@@ -28,6 +29,7 @@ from app.db.session import tenant_session
 from app.models.chunk import Chunk
 from app.repos import document_repo
 from app.services import ingest, storage
+from app.services.embedding import get_embedder
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +124,24 @@ async def parse_document(ctx: dict, document_id: str, tenant_id: str) -> str:
             child_count += 1
             order_index += 1
 
+    # ---- 4.5 向量化（只对子块做，父块用于生成不需要向量）----
+    child_rows = [r for r in rows if r["parent_id"] is not None]
+    if child_rows:
+        with tenant_session(tenant_uuid) as db:
+            document_repo.update_state(db, doc_uuid, status="embedding", progress=80)
+        try:
+            embedder = get_embedder()
+            vectors = await asyncio.to_thread(
+                embedder.embed, [r["content"] for r in child_rows]
+            )
+            for row, vec in zip(child_rows, vectors):
+                row["embedding"] = vec
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("embed_failed id=%s", document_id)
+            _mark_failed(tenant_uuid, doc_uuid, f"向量化失败：{exc}")
+            return "failed"
+
+    # ---- 5. 落块（先删旧的，保证重跑幂等）----
     with tenant_session(tenant_uuid) as db:
         db.execute(delete(Chunk).where(Chunk.doc_id == doc_uuid))
         if rows:
@@ -148,6 +168,12 @@ class WorkerSettings:
     functions = [parse_document]
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
     job_timeout = 300
-    max_tries = 3
+    max_tries = 2
     keep_result = 3600
     health_check_interval = 30
+
+    # **并发必须是 1**：解析 + 向量化都是 CPU/内存密集型。
+    # 实测把 60 个文档一次性投递、默认并发 10 时，ONNX 模型被多线程同时跑，
+    # 1.7 GB 内存的机器直接 swap 抖动到 SSH 都连不上。
+    # 串行处理虽然慢一点，但稳定——"慢"比"卡死"好。
+    max_jobs = 1
