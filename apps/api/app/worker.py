@@ -1,14 +1,18 @@
-"""arq 后台 worker：文档解析。
+"""arq 后台 worker：文档解析与分块。
 
 启动：
     cd apps/api
     .\\.venv\\Scripts\\python.exe -m arq app.worker.WorkerSettings
 
-设计要点：
-1. **每个步骤一个短事务**（`tenant_session`）：`SET LOCAL app.tenant_id` 随事务结束失效，
-   长事务中间 commit 会丢掉租户上下文，后续写入被 RLS 拒绝。
-2. **幂等**：重跑同一个任务时先删掉旧 chunk，不会产生重复数据。
-3. **失败可诊断**：把原因写进 `error_reason`，而不是只打日志。
+W10 的变化：
+- 支持 PDF / DOCX（`ingest.extract_blocks`）
+- 产出**父子块**：父块用于生成上下文，子块用于检索（`parent_id` 关联）
+- `chunk_count` 记的是**子块数**（真正的检索单元）
+- 页面、章节路径随块落库，供 W12 引用溯源
+
+依然保持的两条：
+1. **每步一个短事务**（`tenant_session`）：`SET LOCAL` 随事务结束失效，长事务中间 commit 会丢租户上下文；
+2. **幂等**：重跑先删旧块。
 """
 
 from __future__ import annotations
@@ -29,17 +33,24 @@ logger = logging.getLogger(__name__)
 
 
 def _estimate_tokens(text: str) -> int:
-    """粗估 token：中文约 1 字 1 token，英文约 4 字符 1 token。
-    这里按 2 字符 ≈ 1 token 折中，W10 会用真正的 tokenizer。
+    """粗估 token：中文约 1 字 1 token，英文约 4 字符 1 token，按 2 字符 1 token 折中。
+    W11 会接真正的 tokenizer（或直接用 embedding 模型的 tokenizer）。
     """
     return max(1, len(text) // 2)
+
+
+def _mark_failed(tenant_id: uuid.UUID, doc_id: uuid.UUID, reason: str) -> None:
+    with tenant_session(tenant_id) as db:
+        document_repo.update_state(
+            db, doc_id, status="failed", progress=0, error_reason=reason[:500]
+        )
 
 
 async def parse_document(ctx: dict, document_id: str, tenant_id: str) -> str:
     doc_uuid = uuid.UUID(document_id)
     tenant_uuid = uuid.UUID(tenant_id)
 
-    # ---- 1. 标记解析中 ----
+    # ---- 1. 取文件信息 ----
     with tenant_session(tenant_uuid) as db:
         doc = document_repo.get(db, doc_uuid)
         if doc is None:
@@ -50,64 +61,92 @@ async def parse_document(ctx: dict, document_id: str, tenant_id: str) -> str:
         filename, path = doc.name, doc.storage_path
         document_repo.update_state(db, doc_uuid, status="parsing", progress=10)
 
-    # ---- 2. 读文件 + 抽文本（这一段的异常要落到 error_reason）----
+    # ---- 2. 解析 ----
     try:
         raw = storage.read(path)
-        text, note = ingest.extract_text(raw, filename)
-        if not text.strip():
-            raise ValueError("文件里没有可提取的文本")
+        blocks, note = ingest.extract_blocks(raw, filename)
+        if note:
+            logger.info("parse_note doc=%s note=%s", document_id, note)
     except Exception as exc:  # noqa: BLE001
         logger.warning("extract_failed id=%s err=%s", document_id, exc)
-        with tenant_session(tenant_uuid) as db:
-            document_repo.update_state(
-                db, doc_uuid, status="failed", progress=0, error_reason=str(exc)[:500]
-            )
+        _mark_failed(tenant_uuid, doc_uuid, str(exc))
         return "failed"
 
-    # ---- 3. 分块 ----
+    # ---- 3. 分块（父 + 子）----
     with tenant_session(tenant_uuid) as db:
         document_repo.update_state(db, doc_uuid, status="chunking", progress=60)
 
-    chunks = ingest.split_chunks(text)
+    try:
+        groups = ingest.build_chunks(blocks)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("chunk_failed id=%s", document_id)
+        _mark_failed(tenant_uuid, doc_uuid, f"分块失败：{exc}")
+        return "failed"
 
     # ---- 4. 落块（先删旧的，保证重跑幂等）----
+    rows: list[dict] = []
+    child_count = 0
+    order_index = 0
+    for group in groups:
+        parent_id = uuid.uuid4()
+        rows.append(
+            {
+                "id": parent_id,
+                "tenant_id": tenant_uuid,
+                "doc_id": doc_uuid,
+                "parent_id": None,
+                "content": group.parent,
+                "content_type": group.kind,
+                "page": group.page,
+                "section_path": group.section[:500],
+                "token_count": _estimate_tokens(group.parent),
+                "order_index": order_index,
+            }
+        )
+        order_index += 1
+        for child in group.children:
+            rows.append(
+                {
+                    "id": uuid.uuid4(),
+                    "tenant_id": tenant_uuid,
+                    "doc_id": doc_uuid,
+                    "parent_id": parent_id,
+                    "content": child,
+                    "content_type": group.kind,
+                    "page": group.page,
+                    "section_path": group.section[:500],
+                    "token_count": _estimate_tokens(child),
+                    "order_index": order_index,
+                }
+            )
+            child_count += 1
+            order_index += 1
+
     with tenant_session(tenant_uuid) as db:
         db.execute(delete(Chunk).where(Chunk.doc_id == doc_uuid))
-        if chunks:
-            db.execute(
-                insert(Chunk),
-                [
-                    {
-                        "id": uuid.uuid4(),
-                        "tenant_id": tenant_uuid,
-                        "doc_id": doc_uuid,
-                        "parent_id": None,
-                        "content": c.content,
-                        "content_type": "text",
-                        "page": c.page,
-                        "section_path": c.section_path,
-                        "token_count": _estimate_tokens(c.content),
-                    }
-                    for c in chunks
-                ],
-            )
+        if rows:
+            # 分批插入，避免单条 SQL 参数过多
+            batch = 500
+            for i in range(0, len(rows), batch):
+                db.execute(insert(Chunk), rows[i : i + batch])
         document_repo.update_state(
             db,
             doc_uuid,
             status="ready",
             progress=100,
-            chunk_count=len(chunks),
+            chunk_count=child_count,
             error_reason="",
         )
 
-    logger.info("parsed doc=%s chunks=%d", document_id, len(chunks))
-    return f"ok:{len(chunks)}"
+    logger.info(
+        "parsed doc=%s parents=%d children=%d", document_id, len(groups), child_count
+    )
+    return f"ok:{child_count}"
 
 
 class WorkerSettings:
     functions = [parse_document]
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
-    # 单个任务最长 5 分钟（大文件解析），超时会被标记失败
     job_timeout = 300
     max_tries = 3
     keep_result = 3600

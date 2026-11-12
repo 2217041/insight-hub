@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import type { Conversation } from "@/lib/types";
 
 type Props = {
@@ -26,13 +28,13 @@ export function Sidebar({
       <div className="flex items-center justify-between px-4 py-4">
         <span className="text-sm font-semibold text-gray-800">Insight Hub</span>
         <div className="flex items-center gap-1.5">
-          <a
+          <Link
             href="/documents"
             className="rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-600 transition hover:bg-white"
             title="知识库文档"
           >
             文档
-          </a>
+          </Link>
           <button
             onClick={onNew}
             className="rounded-md bg-gray-900 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-gray-700"

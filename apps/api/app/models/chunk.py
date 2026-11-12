@@ -56,6 +56,8 @@ class Chunk(Base):
     page: Mapped[int] = mapped_column(Integer, default=0)
     section_path: Mapped[str] = mapped_column(String(500), default="")
     token_count: Mapped[int] = mapped_column(Integer, default=0)
+    # 同一文档内的顺序：父块与子块都参与排序，W12 组装上下文时按它拼
+    order_index: Mapped[int] = mapped_column(Integer, default=0, index=True)
 
     embedding: Mapped[list[float] | None] = mapped_column(
         Vector(EMBEDDING_DIM), nullable=True

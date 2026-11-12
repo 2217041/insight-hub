@@ -139,3 +139,17 @@ async def document_progress(
             "X-Accel-Buffering": "no",
         },
     )
+
+@router.get("/{doc_id}/chunks")
+def list_document_chunks(
+    doc_id: uuid.UUID,
+    limit: int = 200,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_tenant_db),
+) -> dict:
+    """分块预览：肉眼确认切块质量。"""
+    document_service.get_document(db, tenant_id=user.tenant_id, doc_id=doc_id)
+    items = document_service.list_chunks(
+        db, tenant_id=user.tenant_id, doc_id=doc_id, limit=min(limit, 500)
+    )
+    return {"items": items, "total": len(items)}

@@ -121,3 +121,33 @@ def get_document(db: Session, *, tenant_id: uuid.UUID, doc_id: uuid.UUID) -> Doc
     if doc is None or doc.tenant_id != tenant_id:
         raise AppError(ErrorCode.NOT_FOUND, "文档不存在", http_status=404)
     return doc
+
+def list_chunks(
+    db: Session, *, tenant_id: uuid.UUID, doc_id: uuid.UUID, limit: int = 200
+) -> list[dict]:
+    """分块预览：按 order_index 返回，父块与子块都带上（子块标出 parent_id）。"""
+    from sqlalchemy import select
+
+    from app.models.chunk import Chunk
+
+    rows = list(
+        db.scalars(
+            select(Chunk)
+            .where(Chunk.doc_id == doc_id, Chunk.tenant_id == tenant_id)
+            .order_by(Chunk.order_index)
+            .limit(limit)
+        )
+    )
+    return [
+        {
+            "id": str(c.id),
+            "parent_id": str(c.parent_id) if c.parent_id else None,
+            "content": c.content,
+            "page": c.page,
+            "section_path": c.section_path,
+            "token_count": c.token_count,
+            "content_type": c.content_type,
+            "order_index": c.order_index,
+        }
+        for c in rows
+    ]

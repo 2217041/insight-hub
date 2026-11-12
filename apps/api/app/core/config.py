@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     # ---- W5：文件上传与异步管道 ----
     storage_dir: str = "data/uploads"
     upload_max_bytes: int = 20 * 1024 * 1024  # 20 MB
-    allowed_extensions: list[str] = [".txt", ".md", ".markdown", ".pdf"]
+    allowed_extensions: list[str] = [".txt", ".md", ".markdown", ".pdf", ".docx"]
     # 文档列表缓存（秒）；写操作会主动失效
     doc_list_cache_ttl: int = 30
     # 单租户每分钟最多上传次数

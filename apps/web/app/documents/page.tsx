@@ -174,7 +174,13 @@ export default function DocumentsPage() {
               <li key={d.id} className="px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate text-sm text-gray-800">{d.name}</p>
+                    <Link
+                      href={`/documents/${d.id}`}
+                      className="truncate text-sm text-gray-800 hover:text-emerald-700 hover:underline"
+                      title="查看分块"
+                    >
+                      {d.name}
+                    </Link>
                     <p className="mt-0.5 text-xs text-gray-400">
                       {fmtSize(d.size_bytes)} · {d.chunk_count} 块
                       {d.error_reason ? ` · ${d.error_reason}` : ""}
