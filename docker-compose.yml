@@ -38,6 +38,9 @@ services:
     restart: unless-stopped
 
   api:
+    # .env 里的变量不会自动进容器，必须显式注入（否则 LLM_API_KEY 拿不到，静默降级 mock）
+    env_file:
+      - .env
     # 显式镜像名：否则 compose 会按 <项目>-<服务> 推导，
     # worker 复用同一个镜像时就会找不到（踩过）
     image: insight-hub-api:latest
@@ -68,6 +71,8 @@ services:
     restart: unless-stopped
 
   worker:
+    env_file:
+      - .env
     image: insight-hub-api:latest
     build: ./apps/api
     container_name: ih-worker

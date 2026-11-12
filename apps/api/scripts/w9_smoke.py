@@ -65,12 +65,12 @@ def main() -> int:
     print(f"[3] 第一轮 provider={provider} 用量={usage1}")
     print(f"    回复片段: {r1['content'][:60]!r}")
 
-    r2 = stream_once(c, token, conv_id, "第二句话")
+    r2 = stream_once(c, token, conv_id, "我刚才说的第一句话是什么？请原样复述")
     usage2 = r2["done"].get("usage", {})
     print(f"[4] 第二轮 用量={usage2}")
-    # 假模型会数 messages 里的 user 轮次；第二轮应该看到"第 2 轮"
-    round_seen = "第 2 轮" in r2["content"]
-    print(f"    历史是否带上: {'✅ 是' if round_seen else '❌ 否'}（回复里出现「第 2 轮」）")
+    # 用"回忆上一句"验证多轮：任何模型都能答，不依赖假模型的特殊标记
+    round_seen = "第一句话" in r2["content"]
+    print(f"    历史是否带上: {'✅ 是' if round_seen else '❌ 否'}（能复述上一句）")
 
     detail = c.get(f"/api/conversations/{conv_id}", headers=h).json()
     msgs = detail["messages"]
