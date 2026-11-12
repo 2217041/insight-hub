@@ -29,6 +29,11 @@ class MessageResponse(BaseModel):
     content: str
     citations: list = []
     created_at: datetime
+    # W9：成本可观测——前端/看板可以直接读
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cost: float = 0
+    latency_ms: int = 0
 
 
 class ConversationDetailResponse(BaseModel):
